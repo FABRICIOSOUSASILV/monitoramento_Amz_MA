@@ -1,0 +1,460 @@
+# -*- coding: utf-8 -*-
+from PyQt5.QtCore import * #Importação das bibliotecas de uso
+from PyQt5.QtGui import *
+from qgis.core import *
+from qgis.gui import *
+import processing
+import gdal
+import sys
+import glob
+
+print("**********Projeto de Monitoramento da Amazônia Maranhense - Script desenvolvido por Labgeo SEMA 2019*******")
+
+#____________________________________PATH 97________________________________________________##
+#################Path_97_Frame_596 OBS: OK #OK FINALIZADO
+print("Iniciado Leitura de Pastas e Arquivos do Path 97.....")
+#criação das listas de cenas nas cenas T1
+listaT1_Path_97_Frame_596=[]
+for i in glob.glob("F:/MiniFlor/ImagensT1/Path_97/Frame_596/*.tif"):
+    print(i)
+    listaT1_Path_97_Frame_596.append(i)    
+#listaT1_Path_97_Frame_596#
+qtdlistaT1_Path_97_Frame_596=list(listaT1_Path_97_Frame_596)
+total_listaT1_Path_97_Frame_596 = len(listaT1_Path_97_Frame_596)
+
+#Inicio dos procedimentos cena à cena#
+if total_listaT1_Path_97_Frame_596>0:
+    print("a pasta Path 97 Frame 596 possui", total_listaT1_Path_97_Frame_596, "cenas a serem processadas")
+    for n in listaT1_Path_97_Frame_596:#Loop para pesquisa individual Substituit o loop bem aqui
+        n0=n[:-39]#editar essa eliminação de caracteres para coincidir com data hora e orbita absoluta,esse módulo retira a extensão do arquivo#
+        n1=n0[40:]#retira o path do arquivo
+        alteracaocalc ="F:\MiniFlor\processos\matriz"+n1+".sdat" #Gera uma matriz de alteração-changedetection
+        alteracaoset ="F:\MiniFlor\processos\AltSet"+n1+".sdat"#Matriz de alteração setado para floresta não floresta
+        Recalteracaoset="F:\MiniFlor\processos\RecAltSet"+n1+".sdat"
+        alteracaovetor = "F:/MiniFlor/processos/alteravetor"+n1+".shp" #Transformação da matriz anterior para poligono
+        mascarafloresta ="F:\MiniFlor\Mascara\Mascara_Prodes2018_APP_50.shp" #Chama a mascara de monitoramento que inclui floresta prodes+alos+apps de rios
+        alteracaovetorfiltro="F:/MiniFlor/processos/altfiltrado"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaovetorfiltroFix="F:/MiniFlor/processos/altfiltradoFix"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaoFinal = "F:\MiniFlor\Vetores\alteracao"+n1+".shp"
+        desmate="F:\MiniFlor\processos\Vetor_desmate"+n1+".shp"
+        desmatearea="F:\MiniFlor\processos\DesmateArea"+n1+".shp"#cria um vetor com a área do desmate
+        Poligonosdesmate="F:\MiniFlor\Vetores\Desmate_Cena_"+n1+".shp"#cria o poligono com desmatamentos
+        Desmateareadata="F:\MiniFlor\processos\Poligono"+n1+".shp"#cria um arquivo de desmate com area
+        car="F:\MiniFlor\Mascara\CAR_AREA_IMOVEL/AREA_IMOVEL_1.shp" #Base geral do CAR com o limite de imoveis
+        Desm_Car_="F:\MiniFlor\Vetores\Prop_Desmat_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        DesmateFlor_="F:\MiniFlor\Vetores\Desmate_Flor_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        arquivodebase=n[39:]#filtra o arquivo para manter apenas o final com a dara e passagem
+        #Carregando as cenas da análise#
+        T1=n
+        #T1="E:/Projeto_Desmate/ImagensT1/"+arquivodebase #AJUSTA CAMINHO E NOME DO ARQUIVO PARA CALCULADORA RASTER
+        #T0 correspondente a Frame 24 Frame 596
+        T0="F:/MiniFlor/ImagemBaseT0/Path97/596/S1A_IW_GRDH_1SDV_20190119T084924_20190119T084953_025544_02D55E_1D6A.tif"#AQUI DEVE SER SUBSTITUIDO PELO MOSAICO BASE DO ANO
+            
+    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        processing.run("saga:rastercalculator", {'GRIDS':T0,'XGRIDS':[T1],'FORMULA':'a/b','RESAMPLING':3,'USE_NODATA':False,'TYPE':7,'RESULT':alteracaocalc})
+    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        processing.run("saga:rastercalculator", {'GRIDS':alteracaocalc,'XGRIDS':'','FORMULA':'ifelse(a>1.2,1,0)','RESAMPLING':3,'USE_NODATA':False,'TYPE':7,'RESULT':alteracaoset})
+        processing.run("saga:cliprasterwithpolygon", {'INPUT':alteracaoset,'POLYGONS':'F:\MiniFlor\Mascara\Mascara_Prodes2018_APP_50.shp','OUTPUT':Recalteracaoset})
+        processing.run("gdal:polygonize", {'INPUT':Recalteracaoset,'BAND':1,'FIELD':'DN','EIGHT_CONNECTEDNESS':False,'OUTPUT':alteracaovetor})
+        processing.run("native:extractbyattribute", {'INPUT':alteracaovetor,'FIELD':'DN','OPERATOR':0,'VALUE':'1','OUTPUT':alteracaovetorfiltro})
+        processing.run("native:fixgeometries", {'INPUT':alteracaovetorfiltro,'OUTPUT':alteracaovetorfiltroFix})
+        processing.run("qgis:fieldcalculator", {'INPUT':alteracaovetorfiltroFix,'FIELD_NAME':'Area_Ha','FIELD_TYPE':0,'FIELD_LENGTH':10,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'$area/10000','OUTPUT':desmatearea})
+        processing.run("qgis:fieldcalculator", {'INPUT':desmatearea,'FIELD_NAME':'Data','FIELD_TYPE':2,'FIELD_LENGTH':80,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'substr( @layer_name, 29, 8)','OUTPUT':Desmateareadata})
+        processing.run("native:extractbyattribute", {'INPUT':Desmateareadata,'FIELD':'Area_Ha','OPERATOR':3,'VALUE':'2','OUTPUT':Poligonosdesmate})
+        print("Cena",n,"Processada")
+#################Path_97_Frame_601
+print("Iniciado Leitura de Pastas e Arquivos do Path 97.....")
+
+#################Path_97_Frame_601 OK #OK FINALIZADO
+#criação das listas de cenas nas cenas T1
+#listaT1_Path_97_Frame_601# OK
+listaT1_Path_97_Frame_601=[]
+for i in glob.glob("F:/MiniFlor/ImagensT1/Path_97/Frame_601/*.tif"):
+    print(i)
+    listaT1_Path_97_Frame_601.append(i)  
+
+#Inicio dos procedimentos cena à cena#
+qtdlistaT1_Path_97_Frame_601=list(listaT1_Path_97_Frame_601)
+total_listaT1_Path_97_Frame_601 = len(listaT1_Path_97_Frame_601)
+if total_listaT1_Path_97_Frame_601>0:
+    print("a pasta Path 97 Frame 601 possui", total_listaT1_Path_97_Frame_601, "cenas a serem processadas")
+    for n in listaT1_Path_97_Frame_601:#Loop para pesquisa individual Substituit o loop bem aqui
+        n0=n[:-39]#editar essa eliminação de caracteres para coincidir com data hora e orbita absoluta, retira a extensão do arquivo#
+        n1=n0[40:]#retira o path do arquivo
+        alteracaocalc ="F:\MiniFlor\processos\matriz"+n1+".sdat" #Gera uma matriz de alteração-changedetection
+        alteracaoset ="F:\MiniFlor\processos\AltSet"+n1+".sdat"#Matriz de alteração setado para floresta não floresta
+        Recalteracaoset="F:\MiniFlor\processos\RecAltSet"+n1+".sdat"
+        alteracaovetor = "F:/MiniFlor/processos/alteravetor"+n1+".shp" #Transformação da matriz anterior para poligono
+        mascarafloresta ="F:\MiniFlor\Mascara\Mascara_Prodes2018_APP_50.shp" #Chama a mascara de monitoramento que inclui floresta prodes+alos+apps de rios
+        alteracaovetorfiltro="F:/MiniFlor/processos/altfiltrado"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaovetorfiltroFix="F:/MiniFlor/processos/altfiltradoFix"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaoFinal = "F:\MiniFlor\Vetores\alteracao"+n1+".shp"
+        desmate="F:\MiniFlor\processos\Vetor_desmate"+n1+".shp"
+        desmatearea="F:\MiniFlor\processos\DesmateArea"+n1+".shp"#cria um vetor com a área do desmate
+        Poligonosdesmate="F:\MiniFlor\Vetores\Desmate_Cena_"+n1+".shp"#cria o poligono com desmatamentos
+        Desmateareadata="F:\MiniFlor\processos\Poligono"+n1+".shp"#cria um arquivo de desmate com area
+        car="F:\MiniFlor\Mascara\CAR_AREA_IMOVEL/AREA_IMOVEL_1.shp" #Base geral do CAR com o limite de imoveis
+        Desm_Car_="F:\MiniFlor\Vetores\Prop_Desmat_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        DesmateFlor_="F:\MiniFlor\Vetores\Desmate_Flor_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        arquivodebase=n[39:]#filtra o arquivo para manter apenas o final com a dara e passagem
+        #Carregando as cenas da análise#
+        T1=n
+        #T1="E:/Projeto_Desmate/ImagensT1/"+arquivodebase #AJUSTA CAMINHO E NOME DO ARQUIVO PARA CALCULADORA RASTER
+        #T0 correspondente a Frame 97 Frame 601
+        T0="F:/MiniFlor/ImagemBaseT0/Path97/601/S1A_IW_GRDH_1SDV_20190119T084953_20190119T085018_025544_02D55E_793B_Cal_Spk_Orb_TC_dB.tif"#AQUI DEVE SER SUBSTITUIDO PELO MOSAICO BASE DO ANO
+            
+    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        processing.run("saga:rastercalculator", {'GRIDS':T0,'XGRIDS':[T1],'FORMULA':'a/b','RESAMPLING':3,'USE_NODATA':False,'TYPE':7,'RESULT':alteracaocalc})
+    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        processing.run("saga:rastercalculator", {'GRIDS':alteracaocalc,'XGRIDS':'','FORMULA':'ifelse(a>1.2,1,0)','RESAMPLING':3,'USE_NODATA':False,'TYPE':1,'RESULT':alteracaoset})
+        processing.run("saga:cliprasterwithpolygon", {'INPUT':alteracaoset,'POLYGONS':'F:\MiniFlor\Mascara\Mascara_Prodes2018_APP_50.shp','OUTPUT':Recalteracaoset})
+        processing.run("gdal:polygonize", {'INPUT':Recalteracaoset,'BAND':1,'FIELD':'DN','EIGHT_CONNECTEDNESS':False,'OUTPUT':alteracaovetor})
+        processing.run("native:extractbyattribute", {'INPUT':alteracaovetor,'FIELD':'DN','OPERATOR':0,'VALUE':'1','OUTPUT':alteracaovetorfiltro})
+        processing.run("native:fixgeometries", {'INPUT':alteracaovetorfiltro,'OUTPUT':alteracaovetorfiltroFix})
+        processing.run("qgis:fieldcalculator", {'INPUT':alteracaovetorfiltroFix,'FIELD_NAME':'Area_Ha','FIELD_TYPE':0,'FIELD_LENGTH':10,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'$area/10000','OUTPUT':desmatearea})
+        processing.run("qgis:fieldcalculator", {'INPUT':desmatearea,'FIELD_NAME':'Data','FIELD_TYPE':2,'FIELD_LENGTH':80,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'substr( @layer_name, 29, 8)','OUTPUT':Desmateareadata})
+        processing.run("native:extractbyattribute", {'INPUT':Desmateareadata,'FIELD':'Area_Ha','OPERATOR':3,'VALUE':'2','OUTPUT':Poligonosdesmate})
+        print("Cena",n,"Processada")
+        
+#listaT1_Path_97_Frame_606# #OK FINALIZADO
+listaT1_Path_97_Frame_606=[]
+for i in glob.glob("F:/MiniFlor/ImagensT1/Path_97/Frame_606/*.tif"):
+    print(i)
+    listaT1_Path_97_Frame_606.append(i)  
+
+#Inicio dos procedimentos cena à cena#
+qtdlistaT1_Path_97_Frame_606=list(listaT1_Path_97_Frame_606)
+total_listaT1_Path_97_Frame_606 = len(listaT1_Path_97_Frame_606)
+if total_listaT1_Path_97_Frame_606>0:
+    print("a pasta Path 97 Frame 606 possui", total_listaT1_Path_97_Frame_606, "cenas a serem processadas")
+    for n in listaT1_Path_97_Frame_606:#Loop para pesquisa individual Substituit o loop bem aqui
+        n0=n[:-39]#editar essa eliminação de caracteres para coincidir com data hora e orbita absoluta, retira a extensão do arquivo#
+        n1=n0[40:]#retira o path do arquivo
+        alteracaocalc ="F:\MiniFlor\processos\matriz"+n1+".sdat" #Gera uma matriz de alteração-changedetection
+        alteracaoset ="F:\MiniFlor\processos\AltSet"+n1+".sdat"#Matriz de alteração setado para floresta não floresta
+        Recalteracaoset="F:\MiniFlor\processos\RecAltSet"+n1+".sdat"
+        alteracaovetor = "F:/MiniFlor/processos/alteravetor"+n1+".shp" #Transformação da matriz anterior para poligono
+        mascarafloresta ="F:\MiniFlor\Mascara\Mascara_Prodes2018_APP_50.shp" #Chama a mascara de monitoramento que inclui floresta prodes+alos+apps de rios
+        alteracaovetorfiltro="F:/MiniFlor/processos/altfiltrado"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaovetorfiltroFix="F:/MiniFlor/processos/altfiltradoFix"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaoFinal = "F:\MiniFlor\Vetores\alteracao"+n1+".shp"
+        desmate="F:\MiniFlor\processos\Vetor_desmate"+n1+".shp"
+        desmatearea="F:\MiniFlor\processos\DesmateArea"+n1+".shp"#cria um vetor com a área do desmate
+        Poligonosdesmate="F:\MiniFlor\Vetores\Desmate_Cena_"+n1+".shp"#cria o poligono com desmatamentos
+        Desmateareadata="F:\MiniFlor\processos\Poligono"+n1+".shp"#cria um arquivo de desmate com area
+        car="F:\MiniFlor\Mascara\CAR_AREA_IMOVEL/AREA_IMOVEL_1.shp" #Base geral do CAR com o limite de imoveis
+        Desm_Car_="F:\MiniFlor\Vetores\Prop_Desmat_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        DesmateFlor_="F:\MiniFlor\Vetores\Desmate_Flor_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        arquivodebase=n[39:]#filtra o arquivo para manter apenas o final com a dara e passagem
+        #Carregando as cenas da análise#
+        T1=n
+        #T1="E:/Projeto_Desmate/ImagensT1/"+arquivodebase #AJUSTA CAMINHO E NOME DO ARQUIVO PARA CALCULADORA RASTER
+        #T0 correspondente a Frame 97 Frame 606
+        T0="F:/MiniFlor/ImagemBaseT0/Path97/606/S1A_IW_GRDH_1SDV_20190119T085018_20190119T085043_025544_02D55E_196A_Cal_Spk_Orb_TC_dB.tif"#AQUI DEVE SER SUBSTITUIDO PELO MOSAICO BASE DO ANO
+    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        processing.run("saga:rastercalculator", {'GRIDS':T0,'XGRIDS':[T1],'FORMULA':'b/a','RESAMPLING':3,'USE_NODATA':False,'TYPE':7,'RESULT':alteracaocalc})
+    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        processing.run("saga:rastercalculator", {'GRIDS':alteracaocalc,'XGRIDS':'','FORMULA':'ifelse(a>1.4, 1, 0)','RESAMPLING':3,'USE_NODATA':False,'TYPE':7,'RESULT':alteracaoset})
+        processing.run("saga:cliprasterwithpolygon", {'INPUT':alteracaoset,'POLYGONS':'F:\MiniFlor\Mascara\Mascara_Prodes2018_APP_50.shp','OUTPUT':Recalteracaoset})
+        processing.run("gdal:polygonize", {'INPUT':Recalteracaoset,'BAND':1,'FIELD':'DN','EIGHT_CONNECTEDNESS':False,'OUTPUT':alteracaovetor})
+        processing.run("native:extractbyattribute", {'INPUT':alteracaovetor,'FIELD':'DN','OPERATOR':0,'VALUE':'1','OUTPUT':alteracaovetorfiltro})
+        processing.run("native:fixgeometries", {'INPUT':alteracaovetorfiltro,'OUTPUT':alteracaovetorfiltroFix})
+        processing.run("qgis:fieldcalculator", {'INPUT':alteracaovetorfiltroFix,'FIELD_NAME':'Area_Ha','FIELD_TYPE':0,'FIELD_LENGTH':10,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'$area/10000','OUTPUT':desmatearea})
+        processing.run("qgis:fieldcalculator", {'INPUT':desmatearea,'FIELD_NAME':'Data','FIELD_TYPE':2,'FIELD_LENGTH':80,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'substr( @layer_name, 29, 8)','OUTPUT':Desmateareadata})
+        processing.run("native:extractbyattribute", {'INPUT':Desmateareadata,'FIELD':'Area_Ha','OPERATOR':3,'VALUE':'2','OUTPUT':Poligonosdesmate})
+        print("Cena",n,"Processada")
+
+#################Path_97_Frame_611 #OK FINALIZADO   
+listaT1_Path_97_Frame_611=[]
+for i in glob.glob("F:/MiniFlor/ImagensT1/Path_97/Frame_611/*.tif"):
+    print(i)
+    listaT1_Path_97_Frame_611.append(i)  
+
+#Inicio dos procedimentos cena à cena#
+qtdlistaT1_Path_97_Frame_611=list(listaT1_Path_97_Frame_611)
+total_listaT1_Path_97_Frame_611 = len(listaT1_Path_97_Frame_611)
+if total_listaT1_Path_97_Frame_611>0:
+    print("a pasta Path 97 Frame 611 possui", total_listaT1_Path_97_Frame_611, "cenas a serem processadas")
+    for n in listaT1_Path_97_Frame_611:#Loop para pesquisa individual Substituit o loop bem aqui
+        n0=n[:-39]#editar essa eliminação de caracteres para coincidir com data hora e orbita absoluta, retira a extensão do arquivo#
+        n1=n0[40:]#retira o path do arquivo
+        alteracaocalc ="F:\MiniFlor\processos\matriz"+n1+".sdat" #Gera uma matriz de alteração-changedetection
+        alteracaoset ="F:\MiniFlor\processos\AltSet"+n1+".sdat"#Matriz de alteração setado para floresta não floresta
+        Recalteracaoset="F:\MiniFlor\processos\RecAltSet"+n1+".sdat"
+        alteracaovetor = "F:/MiniFlor/processos/alteravetor"+n1+".shp" #Transformação da matriz anterior para poligono
+        mascarafloresta ="F:\MiniFlor\Mascara\Mascara_Prodes2018_APP_50.shp" #Chama a mascara de monitoramento que inclui floresta prodes+alos+apps de rios
+        alteracaovetorfiltro="F:/MiniFlor/processos/altfiltrado"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaovetorfiltroFix="F:/MiniFlor/processos/altfiltradoFix"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaoFinal = "F:\MiniFlor\Vetores\alteracao"+n1+".shp"
+        desmate="F:\MiniFlor\processos\Vetor_desmate"+n1+".shp"
+        desmatearea="F:\MiniFlor\processos\DesmateArea"+n1+".shp"#cria um vetor com a área do desmate
+        Poligonosdesmate="F:\MiniFlor\Vetores\Desmate_Cena_"+n1+".shp"#cria o poligono com desmatamentos
+        Desmateareadata="F:\MiniFlor\processos\Poligono"+n1+".shp"#cria um arquivo de desmate com area
+        car="F:\MiniFlor\Mascara\CAR_AREA_IMOVEL/AREA_IMOVEL_1.shp" #Base geral do CAR com o limite de imoveis
+        Desm_Car_="F:\MiniFlor\Vetores\Prop_Desmat_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        DesmateFlor_="F:\MiniFlor\Vetores\Desmate_Flor_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        arquivodebase=n[39:]#filtra o arquivo para manter apenas o final com a dara e passagem
+        #Carregando as cenas da análise#
+        T1=n
+        #T1="E:/Projeto_Desmate/ImagensT1/"+arquivodebase #AJUSTA CAMINHO E NOME DO ARQUIVO PARA CALCULADORA RASTER
+        #T0 correspondente a Frame 97 Frame 606
+        T0="F:/MiniFlor/ImagemBaseT0/Path97/611/S1A_IW_GRDH_1SDV_20190131T085042_20190131T085107_025719_02DBC3_4517.tif"#AQUI DEVE SER SUBSTITUIDO PELO MOSAICO BASE DO ANO
+    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        processing.run("saga:rastercalculator", {'GRIDS':T0,'XGRIDS':[T1],'FORMULA':'b/a','RESAMPLING':3,'USE_NODATA':False,'TYPE':7,'RESULT':alteracaocalc})
+    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        processing.run("saga:rastercalculator", {'GRIDS':alteracaocalc,'XGRIDS':'','FORMULA':'ifelse(a>1.4, 1, 0)','RESAMPLING':3,'USE_NODATA':False,'TYPE':7,'RESULT':alteracaoset})
+        processing.run("saga:cliprasterwithpolygon", {'INPUT':alteracaoset,'POLYGONS':'F:\MiniFlor\Mascara\Mascara_Prodes2018_APP_50.shp','OUTPUT':Recalteracaoset})
+        processing.run("gdal:polygonize", {'INPUT':Recalteracaoset,'BAND':1,'FIELD':'DN','EIGHT_CONNECTEDNESS':False,'OUTPUT':alteracaovetor})
+        processing.run("native:extractbyattribute", {'INPUT':alteracaovetor,'FIELD':'DN','OPERATOR':0,'VALUE':'1','OUTPUT':alteracaovetorfiltro})
+        processing.run("native:fixgeometries", {'INPUT':alteracaovetorfiltro,'OUTPUT':alteracaovetorfiltroFix})
+        processing.run("qgis:fieldcalculator", {'INPUT':alteracaovetorfiltroFix,'FIELD_NAME':'Area_Ha','FIELD_TYPE':0,'FIELD_LENGTH':10,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'$area/10000','OUTPUT':desmatearea})
+        processing.run("qgis:fieldcalculator", {'INPUT':desmatearea,'FIELD_NAME':'Data','FIELD_TYPE':2,'FIELD_LENGTH':80,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'substr( @layer_name, 29, 8)','OUTPUT':Desmateareadata})
+        processing.run("native:extractbyattribute", {'INPUT':Desmateareadata,'FIELD':'Area_Ha','OPERATOR':3,'VALUE':'2','OUTPUT':Poligonosdesmate})
+        print("Cena",n,"Processada")
+
+#listaT1_Path_97_Frame_616#
+listaT1_Path_97_Frame_616=[]
+for i in glob.glob("F:/MiniFlor/ImagensT1/Path_97/Frame_616/*.tif"):
+    print(i)
+    listaT1_Path_97_Frame_616.append(i)  
+
+#Inicio dos procedimentos cena à cena#
+qtdlistaT1_Path_97_Frame_616=list(listaT1_Path_97_Frame_616)
+total_listaT1_Path_97_Frame_616 = len(listaT1_Path_97_Frame_616)
+if total_listaT1_Path_97_Frame_616>0:
+    print("a pasta Path 97 Frame 616 possui", total_listaT1_Path_97_Frame_616, "cenas a serem processadas")
+    for n in listaT1_Path_97_Frame_616:#Loop para pesquisa individual Substituit o loop bem aqui
+        n0=n[:-39]#editar essa eliminação de caracteres para coincidir com data hora e orbita absoluta, retira a extensão do arquivo#
+        n1=n0[40:]#retira o path do arquivo
+        alteracaocalc ="F:\MiniFlor\processos\matriz"+n1+".sdat" #Gera uma matriz de alteração-changedetection
+        alteracaoset ="F:\MiniFlor\processos\AltSet"+n1+".sdat"#Matriz de alteração setado para floresta não floresta
+        Recalteracaoset="F:\MiniFlor\processos\RecAltSet"+n1+".sdat"
+        alteracaovetor = "F:/MiniFlor/processos/alteravetor"+n1+".shp" #Transformação da matriz anterior para poligono
+        mascarafloresta ="F:\MiniFlor\Mascara\Mascara_Prodes2018_APP_50.shp" #Chama a mascara de monitoramento que inclui floresta prodes+alos+apps de rios
+        alteracaovetorfiltro="F:/MiniFlor/processos/altfiltrado"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaovetorfiltroFix="F:/MiniFlor/processos/altfiltradoFix"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaoFinal = "F:\MiniFlor\Vetores\alteracao"+n1+".shp"
+        desmate="F:\MiniFlor\processos\Vetor_desmate"+n1+".shp"
+        desmatearea="F:\MiniFlor\processos\DesmateArea"+n1+".shp"#cria um vetor com a área do desmate
+        Poligonosdesmate="F:\MiniFlor\Vetores\Desmate_Cena_"+n1+".shp"#cria o poligono com desmatamentos
+        Desmateareadata="F:\MiniFlor\processos\Poligono"+n1+".shp"#cria um arquivo de desmate com area
+        car="F:\MiniFlor\Mascara\CAR_AREA_IMOVEL/AREA_IMOVEL_1.shp" #Base geral do CAR com o limite de imoveis
+        Desm_Car_="F:\MiniFlor\Vetores\Prop_Desmat_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        DesmateFlor_="F:\MiniFlor\Vetores\Desmate_Flor_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        arquivodebase=n[39:]#filtra o arquivo para manter apenas o final com a dara e passagem
+        #Carregando as cenas da análise#
+        T1=n
+        #T1="E:/Projeto_Desmate/ImagensT1/"+arquivodebase #AJUSTA CAMINHO E NOME DO ARQUIVO PARA CALCULADORA RASTER
+        #T0 correspondente a Frame 97 Frame 616
+        T0="F:/MiniFlor/ImagemBaseT0/Path97/616/S1A_IW_GRDH_1SDV_20190119T085043_20190119T085108_025544_02D55E_CBF2.tif"#AQUI DEVE SER SUBSTITUIDO PELO MOSAICO BASE DO ANO
+    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        processing.run("saga:rastercalculator", {'GRIDS':T0,'XGRIDS':[T1],'FORMULA':'a/b','RESAMPLING':3,'USE_NODATA':False,'TYPE':7,'RESULT':alteracaocalc})
+    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        processing.run("saga:rastercalculator", {'GRIDS':alteracaocalc,'XGRIDS':'','FORMULA':'ifelse(a>1, 1, 0)','RESAMPLING':3,'USE_NODATA':False,'TYPE':7,'RESULT':alteracaoset})
+        processing.run("saga:cliprasterwithpolygon", {'INPUT':alteracaoset,'POLYGONS':'F:\MiniFlor\Mascara\Mascara_Prodes2018_APP_50.shp','OUTPUT':Recalteracaoset})
+        processing.run("gdal:polygonize", {'INPUT':Recalteracaoset,'BAND':1,'FIELD':'DN','EIGHT_CONNECTEDNESS':False,'OUTPUT':alteracaovetor})
+        processing.run("native:extractbyattribute", {'INPUT':alteracaovetor,'FIELD':'DN','OPERATOR':0,'VALUE':'1','OUTPUT':alteracaovetorfiltro})
+        processing.run("native:fixgeometries", {'INPUT':alteracaovetorfiltro,'OUTPUT':alteracaovetorfiltroFix})
+        processing.run("qgis:fieldcalculator", {'INPUT':alteracaovetorfiltroFix,'FIELD_NAME':'Area_Ha','FIELD_TYPE':0,'FIELD_LENGTH':10,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'$area/10000','OUTPUT':desmatearea})
+        processing.run("qgis:fieldcalculator", {'INPUT':desmatearea,'FIELD_NAME':'Data','FIELD_TYPE':2,'FIELD_LENGTH':80,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'substr( @layer_name, 29, 8)','OUTPUT':Desmateareadata})
+        processing.run("native:extractbyattribute", {'INPUT':Desmateareadata,'FIELD':'Area_Ha','OPERATOR':3,'VALUE':'2','OUTPUT':Poligonosdesmate})
+        print("Cena",n,"Processada")
+
+#____________________________________PATH 24________________________________________________##
+print("Iniciado Leitura de Pastas e Arquivos do Path 24.....")
+#################Path_24_Frame_597 PENDENTE
+listaT1_Path_24_Frame_597=[]
+for i in glob.glob("F:/MiniFlor/ImagensT1/Path_24/Frame_597/*.tif"):
+    print(i)
+    listaT1_Path_24_Frame_597.append(i)
+
+qtdlistaT1_Path_24_Frame_597=list(listaT1_Path_24_Frame_597)
+total_listaT1_Path_24_Frame_597 = len(listaT1_Path_24_Frame_597)
+
+#Inicio dos procedimentos cena à cena#
+if total_listaT1_Path_24_Frame_597>0:
+    print("a pasta Path 24 Frame 597 possui", total_listaT1_Path_24_Frame_597, "cenas a serem processadas")
+    for n in listaT1_Path_24_Frame_597:#Loop para pesquisa individual Substituit o loop bem aqui
+        n0=n[:-39]#editar essa eliminação de caracteres para coincidir com data hora e orbita absoluta, retira a extensão do arquivo#
+        n1=n0[40:]#retira o path do arquivo
+        alteracaocalc ="F:\MiniFlor\processos\matriz"+n1+".sdat" #Gera uma matriz de alteração-changedetection
+        alteracaoset ="F:\MiniFlor\processos\AltSet"+n1+".sdat"#Matriz de alteração setado para floresta não floresta
+        Recalteracaoset="F:\MiniFlor\processos\RecAltSet"+n1+".sdat"
+        alteracaovetor = "F:/MiniFlor/processos/alteravetor"+n1+".shp" #Transformação da matriz anterior para poligono
+        mascarafloresta ="F:\MiniFlor\Mascara\Mascara_Prodes2018_APP_50.shp" #Chama a mascara de monitoramento que inclui floresta prodes+alos+apps de rios
+        alteracaovetorfiltro="F:/MiniFlor/processos/altfiltrado"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaovetorfiltroFix="F:/MiniFlor/processos/altfiltradoFix"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaoFinal = "F:\MiniFlor\Vetores\alteracao"+n1+".shp"
+        desmate="F:\MiniFlor\processos\Vetor_desmate"+n1+".shp"
+        desmatearea="F:\MiniFlor\processos\DesmateArea"+n1+".shp"#cria um vetor com a área do desmate
+        Poligonosdesmate="F:\MiniFlor\Vetores\Desmate_Cena_"+n1+".shp"#cria o poligono com desmatamentos
+        Desmateareadata="F:\MiniFlor\processos\Poligono"+n1+".shp"#cria um arquivo de desmate com area
+        car="F:\MiniFlor\Mascara\CAR_AREA_IMOVEL/AREA_IMOVEL_1.shp" #Base geral do CAR com o limite de imoveis
+        Desm_Car_="F:\MiniFlor\Vetores\Prop_Desmat_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        DesmateFlor_="F:\MiniFlor\Vetores\Desmate_Flor_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        arquivodebase=n[39:]#filtra o arquivo para manter apenas o final com a dara e passagem
+        #Carregando as cenas da análise#
+        T1=n
+        #T1="E:/Projeto_Desmate/ImagensT1/"+arquivodebase #AJUSTA CAMINHO E NOME DO ARQUIVO PARA CALCULADORA RASTER
+        #T0 correspondente a Frame 24 Frame 597
+        T0="F:/MiniFlor/ImagemBaseT0/Path24/597/S1A_IW_GRDH_1SDV_20190126T084114_20190126T084143_025646_02D91D_6FA0_Cal_Spk_Orb_TC_dB.tif"#AQUI DEVE SER SUBSTITUIDO PELO MOSAICO BASE DO ANO
+    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        processing.run("saga:rastercalculator", {'GRIDS':T0,'XGRIDS':[T1],'FORMULA':'a/b','RESAMPLING':3,'USE_NODATA':False,'TYPE':7,'RESULT':alteracaocalc})
+    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        processing.run("saga:rastercalculator", {'GRIDS':alteracaocalc,'XGRIDS':'','FORMULA':'ifelse(a>1.2, 1, 0)','RESAMPLING':3,'USE_NODATA':False,'TYPE':7,'RESULT':alteracaoset})
+        processing.run("saga:cliprasterwithpolygon", {'INPUT':alteracaoset,'POLYGONS':'F:/MiniFlor/Mascara/Mascara_Prodes2018_APP_50.shp','OUTPUT':Recalteracaoset})
+        processing.run("gdal:polygonize", {'INPUT':Recalteracaoset,'BAND':1,'FIELD':'DN','EIGHT_CONNECTEDNESS':False,'OUTPUT':alteracaovetor})
+        processing.run("native:extractbyattribute", {'INPUT':alteracaovetor,'FIELD':'DN','OPERATOR':0,'VALUE':'1','OUTPUT':alteracaovetorfiltro})
+        processing.run("native:fixgeometries", {'INPUT':alteracaovetorfiltro,'OUTPUT':alteracaovetorfiltroFix})
+        processing.run("qgis:fieldcalculator", {'INPUT':alteracaovetorfiltroFix,'FIELD_NAME':'Area_Ha','FIELD_TYPE':0,'FIELD_LENGTH':10,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'$area/10000','OUTPUT':desmatearea})
+        processing.run("qgis:fieldcalculator", {'INPUT':desmatearea,'FIELD_NAME':'Data','FIELD_TYPE':2,'FIELD_LENGTH':80,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'substr( @layer_name, 29, 8)','OUTPUT':Desmateareadata})
+        processing.run("native:extractbyattribute", {'INPUT':Desmateareadata,'FIELD':'Area_Ha','OPERATOR':3,'VALUE':'2','OUTPUT':Poligonosdesmate})
+        print("Cena",n,"Processada")
+
+################Path_24_Frame_602
+listaT1_Path_24_Frame_602=[] #OK FINALIZADO
+for i in glob.glob("F:/MiniFlor/ImagensT1/Path_24/Frame_602/*.tif"):
+    print(i)
+    listaT1_Path_24_Frame_602.append(i)  
+
+qtdlistaT1_Path_24_Frame_602=list(listaT1_Path_24_Frame_602)
+total_listaT1_Path_24_Frame_602 = len(listaT1_Path_24_Frame_602)
+
+#Inicio dos procedimentos cena à cena#
+if total_listaT1_Path_24_Frame_602>0:
+    print("a pasta Path 24 Frame 602 possui", total_listaT1_Path_24_Frame_602, "cenas a serem processadas")
+    for n in listaT1_Path_24_Frame_602:#Loop para pesquisa individual Substituit o loop bem aqui
+        n0=n[:-39]#editar essa eliminação de caracteres para coincidir com data hora e orbita absoluta, retira a extensão do arquivo#
+        n1=n0[40:]#retira o path do arquivo
+        alteracaocalc ="F:\MiniFlor\processos\matriz"+n1+".sdat" #Gera uma matriz de alteração-changedetection
+        alteracaoset ="F:\MiniFlor\processos\AltSet"+n1+".sdat"#Matriz de alteração setado para floresta não floresta
+        Recalteracaoset="F:\MiniFlor\processos\RecAltSet"+n1+".sdat"
+        alteracaovetor = "F:/MiniFlor/processos/alteravetor"+n1+".shp" #Transformação da matriz anterior para poligono
+        mascarafloresta ="F:\MiniFlor\Mascara\Mascara_Prodes2018_APP_50.shp" #Chama a mascara de monitoramento que inclui floresta prodes+alos+apps de rios
+        alteracaovetorfiltro="F:/MiniFlor/processos/altfiltrado"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaovetorfiltroFix="F:/MiniFlor/processos/altfiltradoFix"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaoFinal = "F:\MiniFlor\Vetores\alteracao"+n1+".shp"
+        desmate="F:\MiniFlor\processos\Vetor_desmate"+n1+".shp"
+        desmatearea="F:\MiniFlor\processos\DesmateArea"+n1+".shp"#cria um vetor com a área do desmate
+        Poligonosdesmate="F:\MiniFlor\Vetores\Desmate_Cena_"+n1+".shp"#cria o poligono com desmatamentos
+        Desmateareadata="F:\MiniFlor\processos\Poligono"+n1+".shp"#cria um arquivo de desmate com area
+        car="F:\MiniFlor\Mascara\CAR_AREA_IMOVEL/AREA_IMOVEL_1.shp" #Base geral do CAR com o limite de imoveis
+        Desm_Car_="F:\MiniFlor\Vetores\Prop_Desmat_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        DesmateFlor_="F:\MiniFlor\Vetores\Desmate_Flor_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        arquivodebase=n[39:]#filtra o arquivo para manter apenas o final com a dara e passagem
+        #Carregando as cenas da análise#
+        T1=n
+        #T1="E:/Projeto_Desmate/ImagensT1/"+arquivodebase #AJUSTA CAMINHO E NOME DO ARQUIVO PARA CALCULADORA RASTER
+        #T0 correspondente a Frame 24 Frame 602
+        T0="F:/MiniFlor/ImagemBaseT0/Path24/602/S1A_IW_GRDH_1SDV_20190126T084143_20190126T084208_025646_02D91D_2792.tif"#AQUI DEVE SER SUBSTITUIDO PELO MOSAICO BASE DO ANO
+    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        processing.run("saga:rastercalculator", {'GRIDS':T0,'XGRIDS':[T1],'FORMULA':'a/b','RESAMPLING':3,'USE_NODATA':False,'TYPE':7,'RESULT':alteracaocalc})
+    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        processing.run("saga:rastercalculator", {'GRIDS':alteracaocalc,'XGRIDS':'','FORMULA':'ifelse(a>1.2,1,0)','RESAMPLING':3,'USE_NODATA':False,'TYPE':7,'RESULT':alteracaoset})
+        processing.run("saga:cliprasterwithpolygon", {'INPUT':alteracaoset,'POLYGONS':'F:\MiniFlor\Mascara\Mascara_Prodes2018_APP_50.shp','OUTPUT':Recalteracaoset})
+        processing.run("gdal:polygonize", {'INPUT':Recalteracaoset,'BAND':1,'FIELD':'DN','EIGHT_CONNECTEDNESS':False,'OUTPUT':alteracaovetor})
+        processing.run("native:extractbyattribute", {'INPUT':alteracaovetor,'FIELD':'DN','OPERATOR':0,'VALUE':'1','OUTPUT':alteracaovetorfiltro})
+        processing.run("native:fixgeometries", {'INPUT':alteracaovetorfiltro,'OUTPUT':alteracaovetorfiltroFix})
+        processing.run("qgis:fieldcalculator", {'INPUT':alteracaovetorfiltroFix,'FIELD_NAME':'Area_Ha','FIELD_TYPE':0,'FIELD_LENGTH':10,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'$area/10000','OUTPUT':desmatearea})
+        processing.run("qgis:fieldcalculator", {'INPUT':desmatearea,'FIELD_NAME':'Data','FIELD_TYPE':2,'FIELD_LENGTH':80,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'substr( @layer_name, 29, 8)','OUTPUT':Desmateareadata})
+        processing.run("native:extractbyattribute", {'INPUT':Desmateareadata,'FIELD':'Area_Ha','OPERATOR':3,'VALUE':'2','OUTPUT':Poligonosdesmate})
+        print("Cena",n,"Processada")
+        
+#################Path_24_Frame_607 #OK FINALIZADO
+listaT1_Path_24_Frame_607=[]
+for i in glob.glob("F:/MiniFlor/ImagensT1/Path_24/Frame_607/*.tif"):
+    print(i)
+    listaT1_Path_24_Frame_607.append(i)  
+
+qtdlistaT1_Path_24_Frame_607=list(listaT1_Path_24_Frame_607)
+total_listaT1_Path_24_Frame_607 = len(listaT1_Path_24_Frame_607)
+
+#Inicio dos procedimentos cena à cena#
+if total_listaT1_Path_24_Frame_607>0:
+    print("a pasta Path 24 Frame 607 possui", total_listaT1_Path_24_Frame_607, "cenas a serem processadas")
+    for n in listaT1_Path_24_Frame_607:#Loop para pesquisa individual Substituit o loop bem aqui
+        n0=n[:-39]#editar essa eliminação de caracteres para coincidir com data hora e orbita absoluta, retira a extensão do arquivo#
+        n1=n0[40:]#retira o path do arquivo
+        alteracaocalc ="F:\MiniFlor\processos\matriz"+n1+".sdat" #Gera uma matriz de alteração-changedetection
+        alteracaoset ="F:\MiniFlor\processos\AltSet"+n1+".sdat"#Matriz de alteração setado para floresta não floresta
+        Recalteracaoset="F:\MiniFlor\processos\RecAltSet"+n1+".sdat"
+        alteracaovetor = "F:/MiniFlor/processos/alteravetor"+n1+".shp" #Transformação da matriz anterior para poligono
+        mascarafloresta ="F:\MiniFlor\Mascara\Mascara_Prodes2018_APP_50.shp" #Chama a mascara de monitoramento que inclui floresta prodes+alos+apps de rios
+        alteracaovetorfiltro="F:/MiniFlor/processos/altfiltrado"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaovetorfiltroFix="F:/MiniFlor/processos/altfiltradoFix"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaoFinal = "F:\MiniFlor\Vetores\alteracao"+n1+".shp"
+        desmate="F:\MiniFlor\processos\Vetor_desmate"+n1+".shp"
+        desmatearea="F:\MiniFlor\processos\DesmateArea"+n1+".shp"#cria um vetor com a área do desmate
+        Poligonosdesmate="F:\MiniFlor\Vetores\Desmate_Cena_"+n1+".shp"#cria o poligono com desmatamentos
+        Desmateareadata="F:\MiniFlor\processos\Poligono"+n1+".shp"#cria um arquivo de desmate com area
+        car="F:\MiniFlor\Mascara\CAR_AREA_IMOVEL/AREA_IMOVEL_1.shp" #Base geral do CAR com o limite de imoveis
+        Desm_Car_="F:\MiniFlor\Vetores\Prop_Desmat_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        DesmateFlor_="F:\MiniFlor\Vetores\Desmate_Flor_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        arquivodebase=n[39:]#filtra o arquivo para manter apenas o final com a dara e passagem
+        #Carregando as cenas da análise#
+        T1=n
+        #T1="E:/Projeto_Desmate/ImagensT1/"+arquivodebase #AJUSTA CAMINHO E NOME DO ARQUIVO PARA CALCULADORA RASTER
+        #T0 correspondente a Frame 24 Frame 607
+        T0="F:/MiniFlor/ImagemBaseT0/Path24/607/S1A_IW_GRDH_1SDV_20190126T084208_20190126T084233_025646_02D91D_9214.tif"#AQUI DEVE SER SUBSTITUIDO PELO MOSAICO BASE DO ANO    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        
+        processing.run("saga:rastercalculator", {'GRIDS':T0,'XGRIDS':[T1],'FORMULA':'a/b','RESAMPLING':3,'USE_NODATA':False,'TYPE':7,'RESULT':alteracaocalc})
+    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        processing.run("saga:rastercalculator", {'GRIDS':alteracaocalc,'XGRIDS':'','FORMULA':'ifelse(a>1.2,1,0)','RESAMPLING':3,'USE_NODATA':False,'TYPE':7,'RESULT':alteracaoset})
+        processing.run("saga:cliprasterwithpolygon", {'INPUT':alteracaoset,'POLYGONS':'F:\MiniFlor\Mascara\Mascara_Prodes2018_APP_50.shp','OUTPUT':Recalteracaoset})
+        processing.run("gdal:polygonize", {'INPUT':Recalteracaoset,'BAND':1,'FIELD':'DN','EIGHT_CONNECTEDNESS':False,'OUTPUT':alteracaovetor})
+        processing.run("native:extractbyattribute", {'INPUT':alteracaovetor,'FIELD':'DN','OPERATOR':0,'VALUE':'1','OUTPUT':alteracaovetorfiltro})
+        processing.run("native:fixgeometries", {'INPUT':alteracaovetorfiltro,'OUTPUT':alteracaovetorfiltroFix})
+        processing.run("qgis:fieldcalculator", {'INPUT':alteracaovetorfiltroFix,'FIELD_NAME':'Area_Ha','FIELD_TYPE':0,'FIELD_LENGTH':10,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'$area/10000','OUTPUT':desmatearea})
+        processing.run("qgis:fieldcalculator", {'INPUT':desmatearea,'FIELD_NAME':'Data','FIELD_TYPE':2,'FIELD_LENGTH':80,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'substr( @layer_name, 29, 8)','OUTPUT':Desmateareadata})
+        processing.run("native:extractbyattribute", {'INPUT':Desmateareadata,'FIELD':'Area_Ha','OPERATOR':3,'VALUE':'2','OUTPUT':Poligonosdesmate})
+        print("Cena",n,"Processada")        
+
+#################Path_24_Frame_612
+listaT1_Path_24_Frame_612=[]
+for i in glob.glob("F:/MiniFlor/ImagensT1/Path_24/Frame_612/*.tif"):
+    print(i)
+    listaT1_Path_24_Frame_612.append(i)  
+
+qtdlistaT1_Path_24_Frame_612=list(listaT1_Path_24_Frame_612)
+total_listaT1_Path_24_Frame_612 = len(listaT1_Path_24_Frame_612)
+
+#Inicio dos procedimentos cena à cena# SCRIPT OK
+if total_listaT1_Path_24_Frame_612>0:
+    print("a pasta Path 24 Frame 612 possui", total_listaT1_Path_24_Frame_612, "cenas a serem processadas")
+    for n in listaT1_Path_24_Frame_612:#Loop para pesquisa individual Substituit o loop bem aqui
+        n0=n[:-39]#editar essa eliminação de caracteres para coincidir com data hora e orbita absoluta, retira a extensão do arquivo#
+        n1=n0[40:]#retira o path do arquivo
+        alteracaocalc ="F:\MiniFlor\processos\matriz"+n1+".sdat" #Gera uma matriz de alteração-changedetection
+        alteracaoset ="F:\MiniFlor\processos\AltSet"+n1+".sdat"#Matriz de alteração setado para floresta não floresta
+        Recalteracaoset="F:\MiniFlor\processos\RecAltSet"+n1+".sdat"
+        alteracaovetor = "F:/MiniFlor/processos/alteravetor"+n1+".shp" #Transformação da matriz anterior para poligono
+        mascarafloresta ="F:\MiniFlor\Mascara\Mascara_Prodes2018_APP_50.shp" #Chama a mascara de monitoramento que inclui floresta prodes+alos+apps de rios
+        alteracaovetorfiltro="F:/MiniFlor/processos/altfiltrado"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaovetorfiltroFix="F:/MiniFlor/processos/altfiltradoFix"+n1+".shp" #Armazena o vetor com desmates filtrados para maior que 1ha
+        alteracaoFinal = "F:\MiniFlor\Vetores\alteracao"+n1+".shp"
+        desmate="F:\MiniFlor\processos\Vetor_desmate"+n1+".shp"
+        desmatearea="F:\MiniFlor\processos\DesmateArea"+n1+".shp"#cria um vetor com a área do desmate
+        Poligonosdesmate="F:\MiniFlor\Vetores\Desmate_Cena_"+n1+".shp"#cria o poligono com desmatamentos
+        Desmateareadata="F:\MiniFlor\processos\Poligono"+n1+".shp"#cria um arquivo de desmate com area
+        car="F:\MiniFlor\Mascara\CAR_AREA_IMOVEL/AREA_IMOVEL_1.shp" #Base geral do CAR com o limite de imoveis
+        Desm_Car_="F:\MiniFlor\Vetores\Prop_Desmat_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        DesmateFlor_="F:\MiniFlor\Vetores\Desmate_Flor_"+n1+".shp" #Vetor gerado a partir da intesercção entre desmate e propriedade
+        arquivodebase=n[39:]#filtra o arquivo para manter apenas o final com a dara e passagem
+        #Carregando as cenas da análise#
+        T1=n
+        #T1="E:/Projeto_Desmate/ImagensT1/"+arquivodebase #AJUSTA CAMINHO E NOME DO ARQUIVO PARA CALCULADORA RASTER
+        #T0 correspondente a Frame 24 Frame 612
+        T0="F:/MiniFlor/ImagemBaseT0/Path24/612/S1A_IW_GRDH_1SDV_20190102T084234_20190102T084259_025296_02CC64_5C0E.tif"#AQUI DEVE SER SUBSTITUIDO PELO MOSAICO BASE DO ANO
+    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        processing.run("saga:rastercalculator", {'GRIDS':T0,'XGRIDS':[T1],'FORMULA':'a/b','RESAMPLING':3,'USE_NODATA':False,'TYPE':7,'RESULT':alteracaocalc})
+    #Setando o limiar de alteração, salvando em vetor e intersectando com a mascara de monitoramento#
+        processing.run("saga:rastercalculator", {'GRIDS':alteracaocalc,'XGRIDS':'','FORMULA':'ifelse(a>1, 1, 0)','RESAMPLING':3,'USE_NODATA':False,'TYPE':7,'RESULT':alteracaoset})
+        processing.run("saga:cliprasterwithpolygon", {'INPUT':alteracaoset,'POLYGONS':'F:\MiniFlor\Mascara\Mascara_Prodes2018_APP_50.shp','OUTPUT':Recalteracaoset})
+        processing.run("gdal:polygonize", {'INPUT':Recalteracaoset,'BAND':1,'FIELD':'DN','EIGHT_CONNECTEDNESS':False,'OUTPUT':alteracaovetor})
+        processing.run("native:extractbyattribute", {'INPUT':alteracaovetor,'FIELD':'DN','OPERATOR':0,'VALUE':'1','OUTPUT':alteracaovetorfiltro})
+        processing.run("native:fixgeometries", {'INPUT':alteracaovetorfiltro,'OUTPUT':alteracaovetorfiltroFix})
+        processing.run("qgis:fieldcalculator", {'INPUT':alteracaovetorfiltroFix,'FIELD_NAME':'Area_Ha','FIELD_TYPE':0,'FIELD_LENGTH':10,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'$area/10000','OUTPUT':desmatearea})
+        processing.run("qgis:fieldcalculator", {'INPUT':desmatearea,'FIELD_NAME':'Data','FIELD_TYPE':2,'FIELD_LENGTH':80,'FIELD_PRECISION':3,'NEW_FIELD':True,'FORMULA':'substr( @layer_name, 29, 8)','OUTPUT':Desmateareadata})
+        processing.run("native:extractbyattribute", {'INPUT':Desmateareadata,'FIELD':'Area_Ha','OPERATOR':3,'VALUE':'2','OUTPUT':Poligonosdesmate})
+        print("Cena",n,"Processada")
+
